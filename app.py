@@ -15,7 +15,7 @@ st.title("💡 Gerador de Relatórios de Chamados")
 
 # --- BARRA LATERAL PARA FORMATAÇÕES (CUSTOMIZAÇÃO) ---
 st.sidebar.header("🎨 Cores e Fontes")
-fonte_escolhida = st.sidebar.selectbox("Estilo da Fonte", ["Arial","Arial Black","Bahnschrift","Calibri","Cambria","Candara","Comic Sans MS","Consolas","Constantia","Corbel","Courier New","Ebrima","Franklin Gothic Medium","Gabriola","Gadugi","Georgia","Impact","Ink Free","Javanese Text","Leelawadee UI","Lucida Console","Lucida Sans Unicode","Malgun Gothic","Microsoft Himalaya","Microsoft JhengHei","Microsoft New Tai Lue","Microsoft PhagsPa","Microsoft Tai Le","Microsoft YaHei","Microsoft Yi Baiti","MingLiU-ExtB","Mongolian Baiti","MS Gothic","MS UI Gothic","MV Boli","Myanmar Text","Nirmala UI","Palatino Linotype","Segoe MDL2 Assets","Segoe Print","Segoe Script","Segoe UI","Segoe UI Historic","Segoe UI Emoji","Segoe UI Symbol","SimSun","Sitka","Sylfaen","Symbol","Tahoma","Times New Roman","Trebuchet MS","Verdana","Webdings","Wingdings","Yu Gothic",])
+fonte_escolhida = st.sidebar.selectbox("Estilo da Fonte", ["Helvetica", "Times-Roman", "Courier"])
 
 st.sidebar.subheader("1. Rotas")
 cor_fundo_rota = st.sidebar.color_picker("Cor de Fundo (Rotas)", "#FF0000")
@@ -114,7 +114,7 @@ if uploaded_file is not None:
                             if cor_fundo_prob != "#FFFFFF": cell.fill = fill_prob
                             current_row += 1
                              
-                ws.column_dimensions['A'].width = 150
+                ws.column_dimensions['A'].width = 250
                 excel_output = io.BytesIO()
                 wb.save(excel_output)
                 excel_output.seek(0)
@@ -150,17 +150,27 @@ if uploaded_file is not None:
 
                 story = []
                 
-                estilo_rota = ParagraphStyle('Rota', fontName=f"{fonte_escolhida}-Bold", fontSize=tamanho_rota, 
+               # Define o nome correto da fonte em Negrito (Bold) para o PDF
+                if fonte_escolhida == "Times-Roman":
+                    fonte_negrito = "Times-Bold"
+                elif fonte_escolhida == "Courier":
+                    fonte_negrito = "Courier-Bold"
+                else:
+                    fonte_negrito = "Helvetica-Bold"
+
+                # Estilos corrigidos
+                estilo_rota = ParagraphStyle('Rota', fontName=fonte_negrito, fontSize=tamanho_rota, 
                                              textColor=HexColor(cor_fonte_rota), backColor=HexColor(cor_fundo_rota), 
                                              spaceAfter=6, spaceBefore=12, padding=5)
                 
-                estilo_bairro = ParagraphStyle('Bairro', fontName=f"{fonte_escolhida}-Bold", fontSize=tamanho_bairro, 
+                estilo_bairro = ParagraphStyle('Bairro', fontName=fonte_negrito, fontSize=tamanho_bairro, 
                                                textColor=HexColor(cor_fonte_bairro), backColor=HexColor(cor_fundo_bairro), 
                                                spaceAfter=3, spaceBefore=6, padding=4)
                 
                 estilo_prob = ParagraphStyle('Prob', fontName=fonte_escolhida, fontSize=tamanho_prob, 
                                              textColor=HexColor(cor_fonte_prob), backColor=HexColor(cor_fundo_prob) if cor_fundo_prob != "#FFFFFF" else None,
                                              spaceAfter=2, leading=tamanho_prob + 4)
+            
 
                 for route, neighborhoods in data_by_route.items():
                     if not neighborhoods: continue
