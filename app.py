@@ -10,12 +10,12 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 
-st.set_page_config(page_title="Processador de Chamados IP", layout="wide")
+st.set_page_config(page_title="Chamados IP", layout="wide")
 st.title("💡 Gerador de Relatórios de Chamados")
 
 # --- BARRA LATERAL PARA FORMATAÇÕES (CUSTOMIZAÇÃO) ---
 st.sidebar.header("🎨 Cores e Fontes")
-fonte_escolhida = st.sidebar.selectbox("Estilo da Fonte", ["Helvetica", "Times-Roman", "Courier"])
+fonte_escolhida = st.sidebar.selectbox("Estilo da Fonte", ["Arial","Arial Black","Bahnschrift","Calibri","Cambria","Candara","Comic Sans MS","Consolas","Constantia","Corbel","Courier New","Ebrima","Franklin Gothic Medium","Gabriola","Gadugi","Georgia","Impact","Ink Free","Javanese Text","Leelawadee UI","Lucida Console","Lucida Sans Unicode","Malgun Gothic","Microsoft Himalaya","Microsoft JhengHei","Microsoft New Tai Lue","Microsoft PhagsPa","Microsoft Tai Le","Microsoft YaHei","Microsoft Yi Baiti","MingLiU-ExtB","Mongolian Baiti","MS Gothic","MS UI Gothic","MV Boli","Myanmar Text","Nirmala UI","Palatino Linotype","Segoe MDL2 Assets","Segoe Print","Segoe Script","Segoe UI","Segoe UI Historic","Segoe UI Emoji","Segoe UI Symbol","SimSun","Sitka","Sylfaen","Symbol","Tahoma","Times New Roman","Trebuchet MS","Verdana","Webdings","Wingdings","Yu Gothic",])
 
 st.sidebar.subheader("1. Rotas")
 cor_fundo_rota = st.sidebar.color_picker("Cor de Fundo (Rotas)", "#FF0000")
@@ -27,7 +27,7 @@ cor_fundo_bairro = st.sidebar.color_picker("Cor de Fundo (Bairros)", "#D3D3D3")
 cor_fonte_bairro = st.sidebar.color_picker("Cor da Fonte (Bairros)", "#000000")
 tamanho_bairro = st.sidebar.number_input("Tamanho da Fonte (Bairros)", min_value=8, max_value=36, value=14)
 
-st.sidebar.subheader("3. Problemas")
+st.sidebar.subheader("3. Chamados")
 cor_fundo_prob = st.sidebar.color_picker("Cor de Fundo (Problemas)", "#FFFFFF")
 cor_fonte_prob = st.sidebar.color_picker("Cor da Fonte (Problemas)", "#000000")
 tamanho_prob = st.sidebar.number_input("Tamanho da Fonte (Problemas)", min_value=8, max_value=36, value=12)
@@ -56,7 +56,7 @@ st.write("Faça o upload da planilha Excel com as abas e o sistema irá processa
 uploaded_file = st.file_uploader("📥 Envie sua planilha Excel (.xlsx) aqui", type=["xlsx"])
 
 if uploaded_file is not None:
-    if st.button("🚀 Processar e Gerar Relatórios"):
+    if st.button("🚀Gerar Relatórios"):
         with st.spinner('Lendo dados e desenhando relatórios...'):
             try:
                 # 1. Leitura do arquivo enviado
@@ -113,6 +113,7 @@ if uploaded_file is not None:
                             cell.font = font_prob; cell.border = thin_border; cell.alignment = Alignment(wrap_text=True)
                             if cor_fundo_prob != "#FFFFFF": cell.fill = fill_prob
                             current_row += 1
+                             story.append(RLImage(grafico_buffer, width=img_largura, height=img_altura))
 
                 ws.column_dimensions['A'].width = 150
                 excel_output = io.BytesIO()
