@@ -4,13 +4,14 @@ import io
 import matplotlib.pyplot as plt
 from openpyxl import Workbook
 from openpyxl.styles import Font as xlFont, PatternFill, Border, Side, Alignment
+from openpyxl.drawing.image import Image as xlImage
 from reportlab.lib.pagesizes import A4, landscape as rl_landscape, portrait as rl_portrait
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 
-st.set_page_config(page_title="Chamados IP", layout="wide")
+st.set_page_config(page_title="Processador de Chamados IP", layout="wide")
 st.title("💡 Gerador de Relatórios de Chamados")
 
 # --- BARRA LATERAL PARA FORMATAÇÕES (CUSTOMIZAÇÃO) ---
@@ -27,7 +28,7 @@ cor_fundo_bairro = st.sidebar.color_picker("Cor de Fundo (Bairros)", "#D3D3D3")
 cor_fonte_bairro = st.sidebar.color_picker("Cor da Fonte (Bairros)", "#000000")
 tamanho_bairro = st.sidebar.number_input("Tamanho da Fonte (Bairros)", min_value=8, max_value=36, value=14)
 
-st.sidebar.subheader("3. Chamados")
+st.sidebar.subheader("3. Problemas")
 cor_fundo_prob = st.sidebar.color_picker("Cor de Fundo (Problemas)", "#FFFFFF")
 cor_fonte_prob = st.sidebar.color_picker("Cor da Fonte (Problemas)", "#000000")
 tamanho_prob = st.sidebar.number_input("Tamanho da Fonte (Problemas)", min_value=8, max_value=36, value=12)
@@ -50,16 +51,16 @@ routes = {
     "ROTA 6": ["BARRA DA ITOUPAVA", "NAVEGANTES", "SANTA RITA", "VALADA ITOUPAVA", "VALADA SÃO PAULO", "RAINHA"]
 }
 
-st.write("Faça o upload da planilha Excel com as abas e o sistema irá processar, formatar e gerar o Excel e o PDF (com gráfico).")
+st.write("Faça o upload da planilha Excel com as abas e o sistema irá processar os dados. O gráfico será gerado no final da planilha Excel.")
 
 # --- ÁREA DE UPLOAD ---
 uploaded_file = st.file_uploader("📥 Envie sua planilha Excel (.xlsx) aqui", type=["xlsx"])
 
 if uploaded_file is not None:
-    if st.button("🚀Gerar Relatórios"):
+    if st.button("🚀 Processar e Gerar Relatórios"):
         with st.spinner('Lendo dados e desenhando relatórios...'):
             try:
-                # 1. Leitura do arquivo enviado
+                # 1. Leitura do arquivo
                 xls = pd.read_excel(uploaded_file, sheet_name=None, header=None, dtype=str)
                 abas_disponiveis = {nome.strip().upper(): nome for nome in xls.keys()}
                 
@@ -80,7 +81,25 @@ if uploaded_file is not None:
                                     data_by_route[route][neighborhood] = problems
                                     contagem_por_rota[route] += len(problems)
 
-                # --- GERAÇÃO DO EXCEL ---
+                # --- GERAÇÃO DO GRÁFICO NA MEMÓRIA ---
+                rotas_nomes = [r for r, qtd in contagem_por_rota.items() if qtd > 0]
+                rotas_qtds = [qtd for r, qtd in contagem_por_rota.items() if qtd > 0]
+                
+                grafico_buffer = io.BytesIO()
+                if rotas_nomes:
+                    fig, ax = plt.subplots(figsize=(8, 5))
+                    ax.bar(rotas_nomes, rotas_qtds, color=cor_fundo_rota)
+                    ax.set_title("Prioridade: Quantidade de Chamados por Rota", fontsize=16, fontweight='bold')
+                    ax.set_ylabel("Nº de Chamados Pendentes")
+                    for i, v in enumerate(rotas_qtds):
+                        ax.text(i, v + 0.5, str(v), ha='center', fontweight='bold')
+                    plt.xticks(rotation=45, ha='right')
+                    plt.tight_layout()
+                    plt.savefig(grafico_buffer, format='png')
+                    plt.close(fig)
+                grafico_buffer.seek(0)
+
+                # --- GERAÇÃO DO EXCEL (COM O GRÁFICO) ---
                 wb = Workbook()
                 ws = wb.active
                 ws.title = "Chamados Pendentes"
@@ -113,31 +132,20 @@ if uploaded_file is not None:
                             cell.font = font_prob; cell.border = thin_border; cell.alignment = Alignment(wrap_text=True)
                             if cor_fundo_prob != "#FFFFFF": cell.fill = fill_prob
                             current_row += 1
-                             
-                ws.column_dimensions['A'].width = 250
+
+                # Inserindo o Gráfico no final da planilha Excel
+                if rotas_nomes:
+                    img_excel = xlImage(grafico_buffer)
+                    # Dá um espaço de 2 linhas em branco após o último chamado
+                    celula_ancora = f"A{current_row + 2}"
+                    ws.add_image(img_excel, celula_ancora)
+
+                ws.column_dimensions['A'].width = 150
                 excel_output = io.BytesIO()
                 wb.save(excel_output)
                 excel_output.seek(0)
 
-                # --- GERAÇÃO DO GRÁFICO (MATPLOTLIB) ---
-                rotas_nomes = [r for r, qtd in contagem_por_rota.items() if qtd > 0]
-                rotas_qtds = [qtd for r, qtd in contagem_por_rota.items() if qtd > 0]
-                
-                grafico_buffer = io.BytesIO()
-                if rotas_nomes:
-                    fig, ax = plt.subplots(figsize=(8, 5))
-                    ax.bar(rotas_nomes, rotas_qtds, color=cor_fundo_rota)
-                    ax.set_title("Prioridade: Quantidade de Chamados por Rota", fontsize=16, fontweight='bold')
-                    ax.set_ylabel("Nº de Chamados Pendentes")
-                    for i, v in enumerate(rotas_qtds):
-                        ax.text(i, v + 0.5, str(v), ha='center', fontweight='bold')
-                    plt.xticks(rotation=45, ha='right')
-                    plt.tight_layout()
-                    plt.savefig(grafico_buffer, format='png')
-                    plt.close(fig)
-                grafico_buffer.seek(0)
-
-                # --- GERAÇÃO DO PDF (REPORTLAB) ---
+                # --- GERAÇÃO DO PDF (LIMPO, SEM GRÁFICO) ---
                 pdf_output = io.BytesIO()
                 pagesize = rl_landscape(A4) if "Paisagem" in orientacao_pdf else rl_portrait(A4)
                 
@@ -150,7 +158,6 @@ if uploaded_file is not None:
 
                 story = []
                 
-               # Define o nome correto da fonte em Negrito (Bold) para o PDF
                 if fonte_escolhida == "Times-Roman":
                     fonte_negrito = "Times-Bold"
                 elif fonte_escolhida == "Courier":
@@ -158,7 +165,6 @@ if uploaded_file is not None:
                 else:
                     fonte_negrito = "Helvetica-Bold"
 
-                # Estilos corrigidos
                 estilo_rota = ParagraphStyle('Rota', fontName=fonte_negrito, fontSize=tamanho_rota, 
                                              textColor=HexColor(cor_fonte_rota), backColor=HexColor(cor_fundo_rota), 
                                              spaceAfter=6, spaceBefore=12, padding=5)
@@ -170,7 +176,6 @@ if uploaded_file is not None:
                 estilo_prob = ParagraphStyle('Prob', fontName=fonte_escolhida, fontSize=tamanho_prob, 
                                              textColor=HexColor(cor_fonte_prob), backColor=HexColor(cor_fundo_prob) if cor_fundo_prob != "#FFFFFF" else None,
                                              spaceAfter=2, leading=tamanho_prob + 4)
-            
 
                 for route, neighborhoods in data_by_route.items():
                     if not neighborhoods: continue
@@ -182,24 +187,16 @@ if uploaded_file is not None:
                             story.append(Paragraph(f"• {str(problem).strip()}", estilo_prob))
                         story.append(Spacer(1, 4 * mm))
 
-                if rotas_nomes:
-                    story.append(Spacer(1, 10 * mm))
-                    story.append(Paragraph("Resumo de Prioridades", estilo_rota))
-                    story.append(Spacer(1, 5 * mm))
-                    img_largura = doc.width
-                    img_altura = img_largura * 0.6
-                    story.append(RLImage(grafico_buffer, width=img_largura, height=img_altura))
-
                 doc.build(story)
                 pdf_output.seek(0)
 
-                st.success("✅ Tudo pronto! Seus relatórios foram gerados com sucesso.")
+                st.success("✅ Tudo pronto! O Gráfico foi anexado no final do Excel.")
                 
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.download_button("📥 Baixar Planilha (Excel)", data=excel_output, file_name="Chamados_Prioridades.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                    st.download_button("📥 Baixar Planilha (Excel com Gráfico)", data=excel_output, file_name="Chamados_Prioridades.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                 with col2:
-                    st.download_button("📄 Baixar Relatório (PDF)", data=pdf_output, file_name="Chamados_Prioridades.pdf", mime="application/pdf")
+                    st.download_button("📄 Baixar Relatório (PDF Limpo)", data=pdf_output, file_name="Chamados_Prioridades.pdf", mime="application/pdf")
 
             except Exception as e:
                 st.error(f"❌ Ocorreu um erro ao processar: {e}")
