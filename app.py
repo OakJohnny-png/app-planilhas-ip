@@ -7,7 +7,7 @@ from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Processador de Chamados IP", layout="wide")
 
-st.title("💡 Processador de Chamados de Iluminação Pública")
+st.title("Iluminação Pública")
 st.write("Faça o upload da planilha Excel contendo as abas dos bairros e personalize a formatação do arquivo final.")
 
 # --- BARRA LATERAL PARA FORMATAÇÕES (CUSTOMIZAÇÃO) ---
