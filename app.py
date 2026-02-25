@@ -113,8 +113,7 @@ if uploaded_file is not None:
                             cell.font = font_prob; cell.border = thin_border; cell.alignment = Alignment(wrap_text=True)
                             if cor_fundo_prob != "#FFFFFF": cell.fill = fill_prob
                             current_row += 1
-                             )
-
+                             
                 ws.column_dimensions['A'].width = 150
                 excel_output = io.BytesIO()
                 wb.save(excel_output)
