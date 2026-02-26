@@ -57,12 +57,12 @@ routes = {
     "ROTA 6": ["BARRA DA ITOUPAVA", "NAVEGANTES", "SANTA RITA", "VALADA ITOUPAVA", "VALADA SÃO PAULO", "RAINHA"]
 }
 
-st.write("Faça o upload da planilha Excel com as abas e o sistema irá gerar seu relatório e um Gráfico Interativo no Excel.")
+st.write("📥 Faça o upload da planilha Excel.")
 
-uploaded_file = st.file_uploader("📥 Envie sua planilha Excel (.xlsx) aqui", type=["xlsx"])
+uploaded_file = st.file_uploader(" ", type=["xlsx"])
 
 if uploaded_file is not None:
-    if st.button("🚀 Processar e Gerar Relatórios"):
+    if st.button("🚀 Gerar Relatórios"):
         with st.spinner('Lendo dados e gerando relatórios...'):
             try:
                 xls = pd.read_excel(uploaded_file, sheet_name=None, header=None, dtype=str)
@@ -144,11 +144,11 @@ if uploaded_file is not None:
                     chart = BarChart()
                     chart.type = "col"
                     chart.style = 10
-                    chart.title = "Prioridade: Quantidade de Chamados por Rota"
+                    chart.title = "Quantidade de Chamados por Rota"
                     chart.y_axis.title = "Nº de Chamados Pendentes"
                     chart.width = 18
                     chart.height = 9
-                    chart.legend = None # Remove a legenda que fica redundante
+                   
 
                     # Linkando o gráfico com as fórmulas ocultas
                     data = Reference(ws_resumo, min_col=2, min_row=1, max_row=len(rotas_com_problemas))
