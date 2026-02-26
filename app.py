@@ -1,10 +1,9 @@
 import streamlit as st
 import pandas as pd
 import io
-import matplotlib.pyplot as plt
 from openpyxl import Workbook
+from openpyxl.chart import BarChart, Reference
 from openpyxl.styles import Font as xlFont, PatternFill, Border, Side, Alignment
-from openpyxl.drawing.image import Image as xlImage
 from reportlab.lib.pagesizes import A4, landscape as rl_landscape, portrait as rl_portrait
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import ParagraphStyle
@@ -14,19 +13,14 @@ from reportlab.lib.units import mm
 st.set_page_config(page_title="V.A.G.A.L.U.M.E.", layout="wide")
 
 # --- LOGO RESPONSIVA NO LUGAR DO TÍTULO ---
-# Usamos colunas para que no computador a imagem fique centralizada e não ocupe
-# 100% da largura do monitor, mas no celular ela se adapta perfeitamente.
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
     try:
-        # Carrega a imagem e ajusta proporcionalmente à tela
         st.image("logo.png", use_container_width=True)
     except Exception:
-        # Plano B: se esquecerem de subir a imagem, exibe o texto para não dar erro
         st.title("💡 V.A.G.A.L.U.M.E.")
 
-
-# --- BARRA LATERAL PARA FORMATAÇÕES (CUSTOMIZAÇÃO) ---
+# --- BARRA LATERAL PARA FORMATAÇÕES ---
 st.sidebar.header("🎨 Cores e Fontes")
 fonte_escolhida = st.sidebar.selectbox("Estilo da Fonte", ["Helvetica", "Times-Roman", "Courier"])
 
@@ -63,24 +57,23 @@ routes = {
     "ROTA 6": ["BARRA DA ITOUPAVA", "NAVEGANTES", "SANTA RITA", "VALADA ITOUPAVA", "VALADA SÃO PAULO", "RAINHA"]
 }
 
-st.write("Faça o upload da planilha Excel com as abas e o sistema irá processar os dados. O gráfico será gerado no final da planilha Excel.")
+st.write("Faça o upload da planilha Excel com as abas e o sistema irá gerar seu relatório e um Gráfico Interativo no Excel.")
 
-# --- ÁREA DE UPLOAD ---
 uploaded_file = st.file_uploader("📥 Envie sua planilha Excel (.xlsx) aqui", type=["xlsx"])
 
 if uploaded_file is not None:
     if st.button("🚀 Processar e Gerar Relatórios"):
-        with st.spinner('Lendo dados e desenhando relatórios...'):
+        with st.spinner('Lendo dados e gerando relatórios...'):
             try:
-                # 1. Leitura do arquivo
                 xls = pd.read_excel(uploaded_file, sheet_name=None, header=None, dtype=str)
                 abas_disponiveis = {nome.strip().upper(): nome for nome in xls.keys()}
                 
                 data_by_route = {r: {} for r in routes}
-                contagem_por_rota = {r: 0 for r in routes}
+                rotas_com_problemas = []
 
-                # 2. Processamento e Filtragem
+                # Filtragem
                 for route, neighborhoods in routes.items():
+                    tem_problema_na_rota = False
                     for neighborhood in neighborhoods:
                         nome_aba_upper = neighborhood.upper()
                         if nome_aba_upper in abas_disponiveis:
@@ -91,27 +84,11 @@ if uploaded_file is not None:
                                 problems = df_filtered[1].tolist()
                                 if problems:
                                     data_by_route[route][neighborhood] = problems
-                                    contagem_por_rota[route] += len(problems)
+                                    tem_problema_na_rota = True
+                    if tem_problema_na_rota:
+                        rotas_com_problemas.append(route)
 
-                # --- GERAÇÃO DO GRÁFICO NA MEMÓRIA ---
-                rotas_nomes = [r for r, qtd in contagem_por_rota.items() if qtd > 0]
-                rotas_qtds = [qtd for r, qtd in contagem_por_rota.items() if qtd > 0]
-                
-                grafico_buffer = io.BytesIO()
-                if rotas_nomes:
-                    fig, ax = plt.subplots(figsize=(8, 5))
-                    ax.bar(rotas_nomes, rotas_qtds, color=cor_fundo_rota)
-                    ax.set_title("Prioridade: Quantidade de Chamados por Rota", fontsize=16, fontweight='bold')
-                    ax.set_ylabel("Nº de Chamados Pendentes")
-                    for i, v in enumerate(rotas_qtds):
-                        ax.text(i, v + 0.5, str(v), ha='center', fontweight='bold')
-                    plt.xticks(rotation=45, ha='right')
-                    plt.tight_layout()
-                    plt.savefig(grafico_buffer, format='png')
-                    plt.close(fig)
-                grafico_buffer.seek(0)
-
-                # --- GERAÇÃO DO EXCEL (COM O GRÁFICO) ---
+                # --- GERAÇÃO DO EXCEL ---
                 wb = Workbook()
                 ws = wb.active
                 ws.title = "Chamados Pendentes"
@@ -140,19 +117,49 @@ if uploaded_file is not None:
                         cell.font = font_bairro; cell.fill = fill_bairro; cell.border = thin_border; cell.alignment = Alignment(wrap_text=True)
                         current_row += 1
                         for problem in problems:
+                            # Coluna A = Problema Visível
                             cell = ws.cell(row=current_row, column=1, value=str(problem).strip())
                             cell.font = font_prob; cell.border = thin_border; cell.alignment = Alignment(wrap_text=True)
                             if cor_fundo_prob != "#FFFFFF": cell.fill = fill_prob
+                            
+                            # Coluna B = Rota Oculta (Usada para o gráfico contar sozinho)
+                            ws.cell(row=current_row, column=2, value=route)
                             current_row += 1
 
-                # Inserindo o Gráfico no final da planilha Excel
-                if rotas_nomes:
-                    img_excel = xlImage(grafico_buffer)
-                    # Dá um espaço de 2 linhas em branco após o último chamado
-                    celula_ancora = f"A{current_row + 2}"
-                    ws.add_image(img_excel, celula_ancora)
-
                 ws.column_dimensions['A'].width = 150
+                ws.column_dimensions['B'].hidden = True # Esconde a coluna B de controle
+
+                # --- CRIANDO DADOS PARA O GRÁFICO NATIVO ---
+                if rotas_com_problemas:
+                    # Cria uma aba oculta para armazenar o resumo dinâmico
+                    ws_resumo = wb.create_sheet(title="Resumo_Grafico")
+                    ws_resumo.sheet_state = 'hidden'
+                    
+                    for idx, route in enumerate(rotas_com_problemas, start=1):
+                        ws_resumo.cell(row=idx, column=1, value=route) # Nome da Rota
+                        # Fórmula NATIVA do Excel que conta os problemas automaticamente
+                        ws_resumo.cell(row=idx, column=2, value=f"=COUNTIF('Chamados Pendentes'!B:B, A{idx})")
+
+                    # Criando o gráfico de Barras
+                    chart = BarChart()
+                    chart.type = "col"
+                    chart.style = 10
+                    chart.title = "Prioridade: Quantidade de Chamados por Rota"
+                    chart.y_axis.title = "Nº de Chamados Pendentes"
+                    chart.width = 18
+                    chart.height = 9
+                    chart.legend = None # Remove a legenda que fica redundante
+
+                    # Linkando o gráfico com as fórmulas ocultas
+                    data = Reference(ws_resumo, min_col=2, min_row=1, max_row=len(rotas_com_problemas))
+                    cats = Reference(ws_resumo, min_col=1, min_row=1, max_row=len(rotas_com_problemas))
+                    chart.add_data(data, titles_from_data=False)
+                    chart.set_categories(cats)
+
+                    # Anexando o gráfico na planilha principal
+                    celula_ancora = f"A{current_row + 2}"
+                    ws.add_chart(chart, celula_ancora)
+
                 excel_output = io.BytesIO()
                 wb.save(excel_output)
                 excel_output.seek(0)
@@ -162,20 +169,16 @@ if uploaded_file is not None:
                 pagesize = rl_landscape(A4) if "Paisagem" in orientacao_pdf else rl_portrait(A4)
                 
                 doc = SimpleDocTemplate(
-                    pdf_output, 
-                    pagesize=pagesize,
+                    pdf_output, pagesize=pagesize,
                     rightMargin=margem_dir * mm, leftMargin=margem_esq * mm,
                     topMargin=margem_sup * mm, bottomMargin=margem_inf * mm
                 )
 
                 story = []
                 
-                if fonte_escolhida == "Times-Roman":
-                    fonte_negrito = "Times-Bold"
-                elif fonte_escolhida == "Courier":
-                    fonte_negrito = "Courier-Bold"
-                else:
-                    fonte_negrito = "Helvetica-Bold"
+                if fonte_escolhida == "Times-Roman": fonte_negrito = "Times-Bold"
+                elif fonte_escolhida == "Courier": fonte_negrito = "Courier-Bold"
+                else: fonte_negrito = "Helvetica-Bold"
 
                 estilo_rota = ParagraphStyle('Rota', fontName=fonte_negrito, fontSize=tamanho_rota, 
                                              textColor=HexColor(cor_fonte_rota), backColor=HexColor(cor_fundo_rota), 
@@ -202,11 +205,11 @@ if uploaded_file is not None:
                 doc.build(story)
                 pdf_output.seek(0)
 
-                st.success("✅ Tudo pronto! O Gráfico foi anexado no final do Excel.")
+                st.success("✅ Tudo pronto! O Gráfico Inteligente foi anexado no final do Excel.")
                 
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.download_button("📥 Baixar Planilha (Excel com Gráfico)", data=excel_output, file_name="Chamados_Prioridades.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                    st.download_button("📥 Baixar Planilha (Excel Inteligente)", data=excel_output, file_name="Chamados_Prioridades.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                 with col2:
                     st.download_button("📄 Baixar Relatório (PDF Limpo)", data=pdf_output, file_name="Chamados_Prioridades.pdf", mime="application/pdf")
 
