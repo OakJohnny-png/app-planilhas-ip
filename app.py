@@ -11,8 +11,20 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 
-st.set_page_config(page_title="Processador de Chamados IP", layout="wide")
-st.title("💡 Gerador de Relatórios de Chamados")
+st.set_page_config(page_title="V.A.G.A.L.U.M.E.", layout="wide")
+
+# --- LOGO RESPONSIVA NO LUGAR DO TÍTULO ---
+# Usamos colunas para que no computador a imagem fique centralizada e não ocupe
+# 100% da largura do monitor, mas no celular ela se adapta perfeitamente.
+col1, col2, col3 = st.columns([1, 2, 1])
+with col2:
+    try:
+        # Carrega a imagem e ajusta proporcionalmente à tela
+        st.image("logo.png", use_container_width=True)
+    except Exception:
+        # Plano B: se esquecerem de subir a imagem, exibe o texto para não dar erro
+        st.title("💡 V.A.G.A.L.U.M.E.")
+
 
 # --- BARRA LATERAL PARA FORMATAÇÕES (CUSTOMIZAÇÃO) ---
 st.sidebar.header("🎨 Cores e Fontes")
