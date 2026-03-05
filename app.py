@@ -11,15 +11,17 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 
 st.set_page_config(page_title="V.A.G.A.L.U.M.E. Pro", layout="wide")
-ano_atual = datetime.now().year
-
-st.title("💡 V.A.G.A.L.U.M.E. - Relatórios de Iluminação")
 
 # --- CONFIGURAÇÕES LATERAIS ---
-st.sidebar.header("🎨 Configurações")
+st.sidebar.header("⚙️ Configurações de Filtro")
+# Permitir que o usuário escolha o ano (evita arquivos em branco)
+ano_selecionado = st.sidebar.number_input("Filtrar por Ano:", min_value=2020, max_value=2030, value=datetime.now().year)
+
+st.sidebar.header("🎨 Estilização")
 fonte_escolhida = st.sidebar.selectbox("Fonte", ["Helvetica", "Times-Roman", "Courier"])
 cor_fundo_rota = st.sidebar.color_picker("Cor das Rotas", "#1E3A8A")
 cor_txt_rota = st.sidebar.color_picker("Texto das Rotas", "#FFFFFF")
+cor_fundo_bairro = st.sidebar.color_picker("Fundo dos Bairros", "#D3D3D3")
 
 # --- REGRAS DE ROTAS ---
 routes = {
@@ -34,15 +36,15 @@ routes = {
 uploaded_file = st.file_uploader("📥 Envie a planilha Excel (.xlsx)", type=["xlsx"])
 
 if uploaded_file:
-    if st.button("🚀 Processar Dados"):
-        with st.spinner('Extraindo dados...'):
+    if st.button("🚀 Processar e Gerar Downloads"):
+        with st.spinner('Extraindo e validando dados...'):
             try:
-                # Lendo o Excel (dtype=str evita conversões erradas iniciais)
+                # Lendo o Excel
                 xls = pd.read_excel(uploaded_file, sheet_name=None, header=None)
                 abas_disponiveis = {nome.strip().upper(): nome for nome in xls.keys()}
                 
                 data_by_route = {}
-                encontrou_dados = False
+                total_itens = 0
 
                 for route, neighborhoods in routes.items():
                     route_data = {}
@@ -53,80 +55,82 @@ if uploaded_file:
                             
                             if df.shape[1] < 4: continue
 
-                            # --- LIMPEZA DOS DADOS (O SEGREDO) ---
-                            # 1. Converte Coluna 0 para Data (forçando o erro virar nulo)
+                            # CONVERSÃO SEGURA DE DATA
                             df[0] = pd.to_datetime(df[0], errors='coerce')
                             
-                            # 2. Limpa espaços e coloca em maiúsculo a Coluna 3 (Status)
-                            df[3] = df[3].astype(str).str.strip().upper()
-                            
-                            # 3. Filtro: Ano Corrente E (Não Realizado OU Não Executado)
-                            # Removi o filtro de ano momentaneamente para teste se o seu arquivo for antigo, 
-                            # mas vou manter como solicitado.
+                            # FILTRAGEM CORRIGIDA (Usando .str para evitar o erro de 'Series')
+                            # Verificamos: Ano, Status (sem espaços e maiúsculo) e se a descrição existe
                             mask = (
-                                (df[0].dt.year == ano_atual) & 
-                                (df[3].isin(['NÃO REALIZADO', 'NÃO EXECUTADO', 'NAO REALIZADO', 'NAO EXECUTADO']))
+                                (df[0].dt.year == ano_selecionado) & 
+                                (df[3].astype(str).str.strip().str.upper().isin(['NÃO REALIZADO', 'NÃO EXECUTADO', 'NAO REALIZADO', 'NAO EXECUTADO'])) &
+                                (df[1].notna())
                             )
                             
-                            # 4. Pega a descrição (Coluna 1)
-                            filt_df = df[mask]
-                            problems = filt_df[1].dropna().astype(str).str.strip().tolist()
+                            problems = df[mask][1].astype(str).str.strip().tolist()
                             
                             if problems:
                                 route_data[neighborhood] = problems
-                                encontrou_dados = True
+                                total_itens += len(problems)
                     
                     if route_data:
                         data_by_route[route] = route_data
 
-                if not encontrou_dados:
-                    st.warning(f"⚠️ Atenção: Nenhuma linha encontrada para o ano {ano_atual} com status 'NÃO REALIZADO'. Verifique se a data na primeira coluna é de {ano_atual}.")
+                if total_itens == 0:
+                    st.warning(f"⚠️ Nenhum dado encontrado para o ano {ano_selecionado}. Tente alterar o ano na barra lateral ou verifique o status na planilha.")
                 else:
-                    # --- GERAÇÃO EXCEL ---
+                    # --- EXCEL ---
                     excel_buffer = io.BytesIO()
                     wb = Workbook()
                     ws = wb.active
                     ws.title = "Pendências"
                     
-                    row_num = 1
+                    row_idx = 1
                     for r_name, b_dict in data_by_route.items():
-                        cell = ws.cell(row=row_num, column=1, value=r_name)
-                        cell.font = xlFont(bold=True, color=cor_txt_rota.replace('#','')); cell.fill = PatternFill(start_color=cor_fundo_rota.replace('#',''), fill_type="solid")
-                        row_num += 1
+                        cell = ws.cell(row=row_idx, column=1, value=r_name)
+                        cell.font = xlFont(bold=True, color=cor_txt_rota.replace('#',''))
+                        cell.fill = PatternFill(start_color=cor_fundo_rota.replace('#',''), fill_type="solid")
+                        row_idx += 1
+                        
                         for b_name, p_list in b_dict.items():
-                            ws.cell(row=row_num, column=1, value=f"📍 {b_name}").font = xlFont(bold=True)
-                            row_num += 1
+                            c_b = ws.cell(row=row_idx, column=1, value=f"📍 {b_name}")
+                            c_b.font = xlFont(bold=True)
+                            c_b.fill = PatternFill(start_color=cor_fundo_bairro.replace('#',''), fill_type="solid")
+                            row_idx += 1
                             for p in p_list:
-                                ws.cell(row=row_num, column=1, value=f"  - {p}")
-                                row_num += 1
-                        row_num += 1
+                                ws.cell(row=row_idx, column=1, value=f"    • {p}")
+                                row_idx += 1
+                        row_idx += 1
                     
                     wb.save(excel_buffer)
                     excel_buffer.seek(0)
 
-                    # --- GERAÇÃO PDF ---
+                    # --- PDF ---
                     pdf_buffer = io.BytesIO()
-                    doc = SimpleDocTemplate(pdf_buffer, pagesize=A4)
+                    doc = SimpleDocTemplate(pdf_buffer, pagesize=A4, margin=15*mm)
                     
-                    # Estilos
-                    style_r = ParagraphStyle('R', fontSize=14, backColor=HexColor(cor_fundo_rota), textColor=HexColor(cor_txt_rota), alignment=1, spaceBefore=10)
-                    style_b = ParagraphStyle('B', fontSize=12, fontName="Helvetica-Bold", leftIndent=10, spaceBefore=5)
-                    style_i = ParagraphStyle('I', fontSize=10, leftIndent=20)
-                    
-                    elements = [Paragraph(f"ORDENS PENDENTES - {ano_atual}", style_r), Spacer(1, 10)]
+                    styles = ParagraphStyle('Normal', fontName=fonte_escolhida, fontSize=10)
+                    style_r = ParagraphStyle('Rota', fontName=f"{fonte_escolhida}-Bold" if fonte_escolhida != "Helvetica" else "Helvetica-Bold", 
+                                            fontSize=14, backColor=HexColor(cor_fundo_rota), textColor=HexColor(cor_txt_rota), 
+                                            alignment=1, spaceAfter=10, padding=5)
+                    style_b = ParagraphStyle('Bairro', fontName=f"{fonte_escolhida}-Bold" if fonte_escolhida != "Helvetica" else "Helvetica-Bold", 
+                                            fontSize=11, backColor=HexColor(cor_fundo_bairro), leftIndent=5, spaceBefore=5)
+
+                    elements = [Paragraph(f"RELATÓRIO DE MANUTENÇÃO - {ano_selecionado}", style_r), Spacer(1, 10)]
                     for r_name, b_dict in data_by_route.items():
                         elements.append(Paragraph(r_name, style_r))
                         for b_name, p_list in b_dict.items():
                             elements.append(Paragraph(b_name, style_b))
                             for p in p_list:
-                                elements.append(Paragraph(f"• {p}", style_i))
+                                elements.append(Paragraph(f"&nbsp;&nbsp;&nbsp;&nbsp;• {p}", styles))
+                            elements.append(Spacer(1, 4))
                     
                     doc.build(elements)
                     pdf_buffer.seek(0)
 
-                    st.success(f"✅ Processado! {sum(len(p) for r in data_by_route.values() for p in r.values())} itens encontrados.")
-                    st.download_button("📥 Baixar Excel", data=excel_buffer, file_name="Lista_Manutencao.xlsx")
-                    st.download_button("📄 Baixar PDF", data=pdf_buffer, file_name="Lista_Manutencao.pdf")
+                    st.success(f"✅ Sucesso! {total_itens} chamados encontrados.")
+                    col1, col2 = st.columns(2)
+                    st.download_button("📥 Baixar Excel", data=excel_buffer, file_name=f"Manutencao_{ano_selecionado}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                    st.download_button("📄 Baixar PDF", data=pdf_buffer, file_name=f"Manutencao_{ano_selecionado}.pdf", mime="application/pdf")
 
             except Exception as e:
                 st.error(f"Erro no processamento: {e}")
