@@ -14,8 +14,12 @@ st.set_page_config(page_title="V.A.G.A.L.U.M.E. Pro", layout="wide")
 
 # --- CONFIGURAÇÕES LATERAIS ---
 st.sidebar.header("⚙️ Configurações de Filtro")
-# Permitir que o usuário escolha o ano (evita arquivos em branco)
 ano_selecionado = st.sidebar.number_input("Filtrar por Ano:", min_value=2020, max_value=2030, value=datetime.now().year)
+
+# Mapeamento de Colunas (Ajuste aqui se precisar mudar outras)
+col_data = 7  # Coluna H
+col_problema = 1 # Coluna B (Descrição)
+col_status = 3 # Coluna D (Status)
 
 st.sidebar.header("🎨 Estilização")
 fonte_escolhida = st.sidebar.selectbox("Fonte", ["Helvetica", "Times-Roman", "Courier"])
@@ -37,9 +41,8 @@ uploaded_file = st.file_uploader("📥 Envie a planilha Excel (.xlsx)", type=["x
 
 if uploaded_file:
     if st.button("🚀 Processar e Gerar Downloads"):
-        with st.spinner('Extraindo e validando dados...'):
+        with st.spinner('Lendo Coluna H e filtrando dados...'):
             try:
-                # Lendo o Excel
                 xls = pd.read_excel(uploaded_file, sheet_name=None, header=None)
                 abas_disponiveis = {nome.strip().upper(): nome for nome in xls.keys()}
                 
@@ -53,20 +56,21 @@ if uploaded_file:
                         if nome_aba_upper in abas_disponiveis:
                             df = xls[abas_disponiveis[nome_aba_upper]].copy()
                             
-                            if df.shape[1] < 4: continue
+                            # Verifica se a planilha tem pelo menos até a coluna H (8 colunas)
+                            if df.shape[1] <= col_data:
+                                continue
 
-                            # CONVERSÃO SEGURA DE DATA
-                            df[0] = pd.to_datetime(df[0], errors='coerce')
+                            # CONVERSÃO DA COLUNA H (Índice 7)
+                            df[col_data] = pd.to_datetime(df[col_data], errors='coerce')
                             
-                            # FILTRAGEM CORRIGIDA (Usando .str para evitar o erro de 'Series')
-                            # Verificamos: Ano, Status (sem espaços e maiúsculo) e se a descrição existe
+                            # FILTRAGEM
                             mask = (
-                                (df[0].dt.year == ano_selecionado) & 
-                                (df[3].astype(str).str.strip().str.upper().isin(['NÃO REALIZADO', 'NÃO EXECUTADO', 'NAO REALIZADO', 'NAO EXECUTADO'])) &
-                                (df[1].notna())
+                                (df[col_data].dt.year == ano_selecionado) & 
+                                (df[col_status].astype(str).str.strip().str.upper().isin(['NÃO REALIZADO', 'NÃO EXECUTADO', 'NAO REALIZADO', 'NAO EXECUTADO'])) &
+                                (df[col_problema].notna())
                             )
                             
-                            problems = df[mask][1].astype(str).str.strip().tolist()
+                            problems = df[mask][col_problema].astype(str).str.strip().tolist()
                             
                             if problems:
                                 route_data[neighborhood] = problems
@@ -76,61 +80,43 @@ if uploaded_file:
                         data_by_route[route] = route_data
 
                 if total_itens == 0:
-                    st.warning(f"⚠️ Nenhum dado encontrado para o ano {ano_selecionado}. Tente alterar o ano na barra lateral ou verifique o status na planilha.")
+                    st.warning(f"⚠️ Nenhum dado encontrado na Coluna H para o ano {ano_selecionado}.")
                 else:
-                    # --- EXCEL ---
+                    # --- GERAÇÃO DOS ARQUIVOS (EXCEL E PDF) ---
+                    # (Mesma lógica de buffer e download anterior)
                     excel_buffer = io.BytesIO()
                     wb = Workbook()
                     ws = wb.active
-                    ws.title = "Pendências"
-                    
                     row_idx = 1
                     for r_name, b_dict in data_by_route.items():
-                        cell = ws.cell(row=row_idx, column=1, value=r_name)
-                        cell.font = xlFont(bold=True, color=cor_txt_rota.replace('#',''))
-                        cell.fill = PatternFill(start_color=cor_fundo_rota.replace('#',''), fill_type="solid")
+                        c = ws.cell(row=row_idx, column=1, value=r_name)
+                        c.font = xlFont(bold=True, color=cor_txt_rota.replace('#','')); c.fill = PatternFill(start_color=cor_fundo_rota.replace('#',''), fill_type="solid")
                         row_idx += 1
-                        
                         for b_name, p_list in b_dict.items():
-                            c_b = ws.cell(row=row_idx, column=1, value=f"📍 {b_name}")
-                            c_b.font = xlFont(bold=True)
-                            c_b.fill = PatternFill(start_color=cor_fundo_bairro.replace('#',''), fill_type="solid")
+                            ws.cell(row=row_idx, column=1, value=f"📍 {b_name}").font = xlFont(bold=True)
                             row_idx += 1
                             for p in p_list:
                                 ws.cell(row=row_idx, column=1, value=f"    • {p}")
                                 row_idx += 1
-                        row_idx += 1
-                    
                     wb.save(excel_buffer)
                     excel_buffer.seek(0)
 
-                    # --- PDF ---
                     pdf_buffer = io.BytesIO()
-                    doc = SimpleDocTemplate(pdf_buffer, pagesize=A4, margin=15*mm)
-                    
-                    styles = ParagraphStyle('Normal', fontName=fonte_escolhida, fontSize=10)
-                    style_r = ParagraphStyle('Rota', fontName=f"{fonte_escolhida}-Bold" if fonte_escolhida != "Helvetica" else "Helvetica-Bold", 
-                                            fontSize=14, backColor=HexColor(cor_fundo_rota), textColor=HexColor(cor_txt_rota), 
-                                            alignment=1, spaceAfter=10, padding=5)
-                    style_b = ParagraphStyle('Bairro', fontName=f"{fonte_escolhida}-Bold" if fonte_escolhida != "Helvetica" else "Helvetica-Bold", 
-                                            fontSize=11, backColor=HexColor(cor_fundo_bairro), leftIndent=5, spaceBefore=5)
-
-                    elements = [Paragraph(f"RELATÓRIO DE MANUTENÇÃO - {ano_selecionado}", style_r), Spacer(1, 10)]
+                    doc = SimpleDocTemplate(pdf_buffer, pagesize=A4)
+                    style_r = ParagraphStyle('R', fontSize=14, backColor=HexColor(cor_fundo_rota), textColor=HexColor(cor_txt_rota), alignment=1)
+                    elements = [Paragraph(f"RELATÓRIO {ano_selecionado}", style_r), Spacer(1, 10)]
                     for r_name, b_dict in data_by_route.items():
                         elements.append(Paragraph(r_name, style_r))
                         for b_name, p_list in b_dict.items():
-                            elements.append(Paragraph(b_name, style_b))
+                            elements.append(Paragraph(f"<b>{b_name}</b>", ParagraphStyle('B', leftIndent=10)))
                             for p in p_list:
-                                elements.append(Paragraph(f"&nbsp;&nbsp;&nbsp;&nbsp;• {p}", styles))
-                            elements.append(Spacer(1, 4))
-                    
+                                elements.append(Paragraph(f"• {p}", ParagraphStyle('I', leftIndent=20)))
                     doc.build(elements)
                     pdf_buffer.seek(0)
 
-                    st.success(f"✅ Sucesso! {total_itens} chamados encontrados.")
-                    col1, col2 = st.columns(2)
-                    st.download_button("📥 Baixar Excel", data=excel_buffer, file_name=f"Manutencao_{ano_selecionado}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                    st.download_button("📄 Baixar PDF", data=pdf_buffer, file_name=f"Manutencao_{ano_selecionado}.pdf", mime="application/pdf")
+                    st.success(f"✅ {total_itens} chamados encontrados!")
+                    st.download_button("📥 Baixar Excel", data=excel_buffer, file_name="Relatorio.xlsx")
+                    st.download_button("📄 Baixar PDF", data=pdf_buffer, file_name="Relatorio.pdf")
 
             except Exception as e:
-                st.error(f"Erro no processamento: {e}")
+                st.error(f"Erro: {e}")
