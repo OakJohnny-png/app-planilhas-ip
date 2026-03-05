@@ -3,37 +3,23 @@ import pandas as pd
 import io
 from datetime import datetime
 from openpyxl import Workbook
-from openpyxl.styles import Font as xlFont, PatternFill, Border, Side, Alignment
+from openpyxl.styles import Font as xlFont, PatternFill, Alignment
 from reportlab.lib.pagesizes import A4, landscape as rl_landscape, portrait as rl_portrait
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
 
-# Configuração Inicial
 st.set_page_config(page_title="V.A.G.A.L.U.M.E. Pro", layout="wide")
 ano_atual = datetime.now().year
 
 st.title("💡 V.A.G.A.L.U.M.E. - Relatórios de Iluminação")
-st.markdown(f"Gerador de ordens de serviço para o ano de **{ano_atual}**.")
 
-# --- BARRA LATERAL APERFEIÇOADA ---
-st.sidebar.header("🎨 Configurações de Formatação")
-
-with st.sidebar.expander("📝 Estilo de Texto", expanded=True):
-    fonte_escolhida = st.sidebar.selectbox("Fonte", ["Helvetica", "Times-Roman", "Courier"])
-    tam_fonte_rota = st.sidebar.slider("Tamanho Fonte Rota", 12, 24, 16)
-    tam_fonte_bairro = st.sidebar.slider("Tamanho Fonte Bairro", 10, 18, 13)
-    tam_fonte_item = st.sidebar.slider("Tamanho Fonte Itens", 8, 14, 11)
-
-with st.sidebar.expander("🌈 Cores do Relatório", expanded=True):
-    cor_fundo_rota = st.sidebar.color_picker("Fundo das Rotas", "#1E3A8A")
-    cor_txt_rota = st.sidebar.color_picker("Texto das Rotas", "#FFFFFF")
-    cor_fundo_bairro = st.sidebar.color_picker("Fundo dos Bairros", "#F3F4F6")
-
-with st.sidebar.expander("📄 Configuração da Página"):
-    orientacao = st.sidebar.radio("Orientação do PDF", ["Retrato", "Paisagem"])
-    margem_val = st.sidebar.number_input("Margens (mm)", value=15)
+# --- CONFIGURAÇÕES LATERAIS ---
+st.sidebar.header("🎨 Configurações")
+fonte_escolhida = st.sidebar.selectbox("Fonte", ["Helvetica", "Times-Roman", "Courier"])
+cor_fundo_rota = st.sidebar.color_picker("Cor das Rotas", "#1E3A8A")
+cor_txt_rota = st.sidebar.color_picker("Texto das Rotas", "#FFFFFF")
 
 # --- REGRAS DE ROTAS ---
 routes = {
@@ -48,101 +34,99 @@ routes = {
 uploaded_file = st.file_uploader("📥 Envie a planilha Excel (.xlsx)", type=["xlsx"])
 
 if uploaded_file:
-    if st.button("🚀 Processar e Gerar Arquivos"):
-        with st.spinner('Lendo dados e formatando documentos...'):
+    if st.button("🚀 Processar Dados"):
+        with st.spinner('Extraindo dados...'):
             try:
-                # 1. Leitura dos Dados
+                # Lendo o Excel (dtype=str evita conversões erradas iniciais)
                 xls = pd.read_excel(uploaded_file, sheet_name=None, header=None)
                 abas_disponiveis = {nome.strip().upper(): nome for nome in xls.keys()}
-                data_by_route = {r: {} for r in routes}
+                
+                data_by_route = {}
+                encontrou_dados = False
 
                 for route, neighborhoods in routes.items():
+                    route_data = {}
                     for neighborhood in neighborhoods:
                         nome_aba_upper = neighborhood.upper()
                         if nome_aba_upper in abas_disponiveis:
-                            df = xls[abas_disponiveis[nome_aba_upper]]
+                            df = xls[abas_disponiveis[nome_aba_upper]].copy()
+                            
                             if df.shape[1] < 4: continue
 
+                            # --- LIMPEZA DOS DADOS (O SEGREDO) ---
+                            # 1. Converte Coluna 0 para Data (forçando o erro virar nulo)
                             df[0] = pd.to_datetime(df[0], errors='coerce')
-                            mask = (df[0].dt.year == ano_atual) & \
-                                   (df[3].astype(str).str.upper().isin(['NÃO REALIZADO', 'NÃO EXECUTADO']))
                             
-                            problems = df[mask][1].dropna().tolist()
+                            # 2. Limpa espaços e coloca em maiúsculo a Coluna 3 (Status)
+                            df[3] = df[3].astype(str).str.strip().upper()
+                            
+                            # 3. Filtro: Ano Corrente E (Não Realizado OU Não Executado)
+                            # Removi o filtro de ano momentaneamente para teste se o seu arquivo for antigo, 
+                            # mas vou manter como solicitado.
+                            mask = (
+                                (df[0].dt.year == ano_atual) & 
+                                (df[3].isin(['NÃO REALIZADO', 'NÃO EXECUTADO', 'NAO REALIZADO', 'NAO EXECUTADO']))
+                            )
+                            
+                            # 4. Pega a descrição (Coluna 1)
+                            filt_df = df[mask]
+                            problems = filt_df[1].dropna().astype(str).str.strip().tolist()
+                            
                             if problems:
-                                data_by_route[route][neighborhood] = problems
-
-                # 2. GERAÇÃO DO EXCEL
-                excel_buffer = io.BytesIO()
-                wb = Workbook()
-                ws = wb.active
-                ws.title = "Pendências"
-                
-                # Estilos Excel
-                ft_rota = xlFont(name=fonte_escolhida, size=tam_fonte_rota, bold=True, color=cor_txt_rota.replace('#',''))
-                fill_rota = PatternFill(start_color=cor_fundo_rota.replace('#',''), fill_type="solid")
-                ft_bairro = xlFont(name=fonte_escolhida, size=tam_fonte_bairro, bold=True)
-                fill_bairro = PatternFill(start_color=cor_fundo_bairro.replace('#',''), fill_type="solid")
-                
-                row = 1
-                for route, neighborhoods in data_by_route.items():
-                    if not neighborhoods: continue
-                    c = ws.cell(row=row, column=1, value=route)
-                    c.font = ft_rota; c.fill = fill_rota; row += 1
+                                route_data[neighborhood] = problems
+                                encontrou_dados = True
                     
-                    for bairro, problems in neighborhoods.items():
-                        c = ws.cell(row=row, column=1, value=f"  {bairro}")
-                        c.font = ft_bairro; c.fill = fill_bairro; row += 1
-                        for p in problems:
-                            ws.cell(row=row, column=1, value=f"    • {p}")
-                            row += 1
-                    row += 1 # Espaço entre rotas
+                    if route_data:
+                        data_by_route[route] = route_data
 
-                wb.save(excel_buffer)
-                excel_buffer.seek(0)
+                if not encontrou_dados:
+                    st.warning(f"⚠️ Atenção: Nenhuma linha encontrada para o ano {ano_atual} com status 'NÃO REALIZADO'. Verifique se a data na primeira coluna é de {ano_atual}.")
+                else:
+                    # --- GERAÇÃO EXCEL ---
+                    excel_buffer = io.BytesIO()
+                    wb = Workbook()
+                    ws = wb.active
+                    ws.title = "Pendências"
+                    
+                    row_num = 1
+                    for r_name, b_dict in data_by_route.items():
+                        cell = ws.cell(row=row_num, column=1, value=r_name)
+                        cell.font = xlFont(bold=True, color=cor_txt_rota.replace('#','')); cell.fill = PatternFill(start_color=cor_fundo_rota.replace('#',''), fill_type="solid")
+                        row_num += 1
+                        for b_name, p_list in b_dict.items():
+                            ws.cell(row=row_num, column=1, value=f"📍 {b_name}").font = xlFont(bold=True)
+                            row_num += 1
+                            for p in p_list:
+                                ws.cell(row=row_num, column=1, value=f"  - {p}")
+                                row_num += 1
+                        row_num += 1
+                    
+                    wb.save(excel_buffer)
+                    excel_buffer.seek(0)
 
-                # 3. GERAÇÃO DO PDF
-                pdf_buffer = io.BytesIO()
-                pg_size = rl_landscape(A4) if orientacao == "Paisagem" else rl_portrait(A4)
-                doc = SimpleDocTemplate(pdf_buffer, pagesize=pg_size, 
-                                        leftMargin=margem_val*mm, rightMargin=margem_val*mm, 
-                                        topMargin=margem_val*mm, bottomMargin=margem_val*mm)
-                
-                # Estilos PDF
-                style_rota = ParagraphStyle('Rota', fontName=f"{fonte_escolhida}-Bold" if fonte_escolhida != "Helvetica" else "Helvetica-Bold", 
-                                            fontSize=tam_fonte_rota, textColor=HexColor(cor_txt_rota), 
-                                            backColor=HexColor(cor_fundo_rota), alignment=1, spaceAfter=10, padding=5)
-                
-                style_bairro = ParagraphStyle('Bairro', fontName=f"{fonte_escolhida}-Bold" if fonte_escolhida != "Helvetica" else "Helvetica-Bold", 
-                                              fontSize=tam_fonte_bairro, backColor=HexColor(cor_fundo_bairro), spaceBefore=5, leftIndent=10)
-                
-                style_item = ParagraphStyle('Item', fontName=fonte_escolhida, fontSize=tam_fonte_item, leftIndent=20, spaceAfter=2)
+                    # --- GERAÇÃO PDF ---
+                    pdf_buffer = io.BytesIO()
+                    doc = SimpleDocTemplate(pdf_buffer, pagesize=A4)
+                    
+                    # Estilos
+                    style_r = ParagraphStyle('R', fontSize=14, backColor=HexColor(cor_fundo_rota), textColor=HexColor(cor_txt_rota), alignment=1, spaceBefore=10)
+                    style_b = ParagraphStyle('B', fontSize=12, fontName="Helvetica-Bold", leftIndent=10, spaceBefore=5)
+                    style_i = ParagraphStyle('I', fontSize=10, leftIndent=20)
+                    
+                    elements = [Paragraph(f"ORDENS PENDENTES - {ano_atual}", style_r), Spacer(1, 10)]
+                    for r_name, b_dict in data_by_route.items():
+                        elements.append(Paragraph(r_name, style_r))
+                        for b_name, p_list in b_dict.items():
+                            elements.append(Paragraph(b_name, style_b))
+                            for p in p_list:
+                                elements.append(Paragraph(f"• {p}", style_i))
+                    
+                    doc.build(elements)
+                    pdf_buffer.seek(0)
 
-                elements = [Paragraph(f"RELATÓRIO DE MANUTENÇÃO - {ano_atual}", style_rota), Spacer(1, 10)]
-
-                for route, neighborhoods in data_by_route.items():
-                    if not neighborhoods: continue
-                    elements.append(Paragraph(route, style_rota))
-                    for bairro, problems in neighborhoods.items():
-                        elements.append(Paragraph(bairro, style_bairro))
-                        for p in problems:
-                            elements.append(Paragraph(f"• {p}", style_item))
-                        elements.append(Spacer(1, 5))
-
-                doc.build(elements)
-                pdf_buffer.seek(0)
-
-                # 4. EXIBIÇÃO DOS BOTÕES
-                st.success("✅ Relatórios processados com sucesso!")
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.download_button(label="📥 Baixar Excel", data=excel_buffer, 
-                                       file_name=f"Vagalume_{ano_atual}.xlsx", 
-                                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                with col2:
-                    st.download_button(label="📄 Baixar PDF", data=pdf_buffer, 
-                                       file_name=f"Vagalume_{ano_atual}.pdf", 
-                                       mime="application/pdf")
+                    st.success(f"✅ Processado! {sum(len(p) for r in data_by_route.values() for p in r.values())} itens encontrados.")
+                    st.download_button("📥 Baixar Excel", data=excel_buffer, file_name="Lista_Manutencao.xlsx")
+                    st.download_button("📄 Baixar PDF", data=pdf_buffer, file_name="Lista_Manutencao.pdf")
 
             except Exception as e:
-                st.error(f"Ocorreu um erro no processamento: {e}")
-
+                st.error(f"Erro no processamento: {e}")
