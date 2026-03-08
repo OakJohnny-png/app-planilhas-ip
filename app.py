@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import io
+import os
+import requests
 from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font as xlFont, PatternFill, Alignment
@@ -9,25 +11,49 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.colors import HexColor
 from reportlab.lib.units import mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 
+# --- FUNÇÃO PARA BAIXAR E REGISTRAR FONTES ---
+def configurar_fontes_google():
+    # URL da fonte Roboto (Regular e Bold) do Google Fonts
+    fontes = {
+        "Roboto-Regular.ttf": "https://github.com/google/fonts/raw/main/apache/roboto/static/Roboto-Regular.ttf",
+        "Roboto-Bold.ttf": "https://github.com/google/fonts/raw/main/apache/roboto/static/Roboto-Bold.ttf"
+    }
+    
+    fontes_disponiveis = ["Helvetica", "Times-Roman", "Courier"]
+    
+    for nome_arquivo, url in fontes.items():
+        if not os.path.exists(nome_arquivo):
+            try:
+                response = requests.get(url)
+                with open(nome_arquivo, 'wb') as f:
+                    f.write(response.content)
+            except:
+                continue
+    
+    if os.path.exists("Roboto-Regular.ttf"):
+        pdfmetrics.registerFont(TTFont('Roboto', 'Roboto-Regular.ttf'))
+        pdfmetrics.registerFont(TTFont('Roboto-Bold', 'Roboto-Bold.ttf'))
+        fontes_disponiveis.append("Roboto")
+        
+    return fontes_disponiveis
+
+# --- INÍCIO DO APP ---
 st.set_page_config(page_title="V.A.G.A.L.U.M.E. Pro", layout="wide")
+fontes_lista = configurar_fontes_google()
 
-# --- CONFIGURAÇÕES LATERAIS ---
-st.sidebar.header("⚙️ Configurações de Filtro")
-ano_selecionado = st.sidebar.number_input("Filtrar por Ano:", min_value=2020, max_value=2030, value=datetime.now().year)
+st.sidebar.header("⚙️ Filtros e Estilo")
+ano_sel = st.sidebar.number_input("Ano do Relatório:", value=datetime.now().year)
+fonte_sel = st.sidebar.selectbox("Fonte do PDF", fontes_lista)
+cor_principal = st.sidebar.color_picker("Cor das Rotas", "#1E3A8A")
 
-# Mapeamento de Colunas (Ajuste aqui se precisar mudar outras)
-col_data = 7  # Coluna H
-col_problema = 1 # Coluna B (Descrição)
-col_status = 3 # Coluna D (Status)
+# Índices das Colunas (Ajustados conforme sua planilha)
+COL_DATA = 7      # Coluna H
+COL_PROBLEMA = 1  # Coluna B
+COL_STATUS = 3    # Coluna D
 
-st.sidebar.header("🎨 Estilização")
-fonte_escolhida = st.sidebar.selectbox("Fonte", ["Helvetica", "Times-Roman", "Courier"])
-cor_fundo_rota = st.sidebar.color_picker("Cor das Rotas", "#1E3A8A")
-cor_txt_rota = st.sidebar.color_picker("Texto das Rotas", "#FFFFFF")
-cor_fundo_bairro = st.sidebar.color_picker("Fundo dos Bairros", "#D3D3D3")
-
-# --- REGRAS DE ROTAS ---
 routes = {
     "ROTA 1": ["CENTRO", "JARDIM AMERICA"],
     "ROTA 2": ["ALBERTINA", "LARANJEIRAS", "BOA VISTA", "EUGENIO SCHNEIDER"],
@@ -40,83 +66,68 @@ routes = {
 uploaded_file = st.file_uploader("📥 Envie a planilha Excel (.xlsx)", type=["xlsx"])
 
 if uploaded_file:
-    if st.button("🚀 Processar e Gerar Downloads"):
-        with st.spinner('Lendo Coluna H e filtrando dados...'):
-            try:
-                xls = pd.read_excel(uploaded_file, sheet_name=None, header=None)
-                abas_disponiveis = {nome.strip().upper(): nome for nome in xls.keys()}
+    if st.button("🚀 Processar e Gerar Arquivos"):
+        try:
+            xls = pd.read_excel(uploaded_file, sheet_name=None, header=None)
+            abas_disponiveis = {nome.strip().upper(): nome for nome in xls.keys()}
+            
+            data_by_route = {}
+            total_encontrado = 0
+
+            for route, neighborhoods in routes.items():
+                route_data = {}
+                for neighborhood in neighborhoods:
+                    nome_upper = neighborhood.upper()
+                    if nome_upper in abas_disponiveis:
+                        df = xls[abas_disponiveis[nome_upper]].copy()
+                        
+                        if df.shape[1] <= COL_DATA: continue
+
+                        # Filtro robusto
+                        df[COL_DATA] = pd.to_datetime(df[COL_DATA], errors='coerce')
+                        mask = (
+                            (df[COL_DATA].dt.year == ano_sel) & 
+                            (df[COL_STATUS].astype(str).str.strip().str.upper().isin(['NÃO REALIZADO', 'NÃO EXECUTADO', 'NAO REALIZADO', 'NAO EXECUTADO']))
+                        )
+                        
+                        items = df[mask][COL_PROBLEMA].dropna().astype(str).str.strip().tolist()
+                        if items:
+                            route_data[neighborhood] = items
+                            total_encontrado += len(items)
                 
-                data_by_route = {}
-                total_itens = 0
+                if route_data:
+                    data_by_route[route] = route_data
 
-                for route, neighborhoods in routes.items():
-                    route_data = {}
-                    for neighborhood in neighborhoods:
-                        nome_aba_upper = neighborhood.upper()
-                        if nome_aba_upper in abas_disponiveis:
-                            df = xls[abas_disponiveis[nome_aba_upper]].copy()
-                            
-                            # Verifica se a planilha tem pelo menos até a coluna H (8 colunas)
-                            if df.shape[1] <= col_data:
-                                continue
+            if total_encontrado == 0:
+                st.warning(f"Nenhum dado de {ano_sel} encontrado na Coluna H com status pendente.")
+            else:
+                # --- PDF GERADO COM A NOVA FONTE ---
+                pdf_buffer = io.BytesIO()
+                doc = SimpleDocTemplate(pdf_buffer, pagesize=A4)
+                
+                # Lógica para Negrito
+                f_bold = "Helvetica-Bold"
+                if fonte_sel == "Roboto": f_bold = "Roboto-Bold"
+                elif fonte_sel == "Times-Roman": f_bold = "Times-Bold"
+                
+                style_header = ParagraphStyle('H', fontName=f_bold, fontSize=14, textColor=HexColor("#FFFFFF"), backColor=HexColor(cor_principal), alignment=1, padding=5)
+                style_bairro = ParagraphStyle('B', fontName=f_bold, fontSize=11, leftIndent=10, spaceBefore=5)
+                style_item = ParagraphStyle('I', fontName=fonte_sel, fontSize=10, leftIndent=20)
 
-                            # CONVERSÃO DA COLUNA H (Índice 7)
-                            df[col_data] = pd.to_datetime(df[col_data], errors='coerce')
-                            
-                            # FILTRAGEM
-                            mask = (
-                                (df[col_data].dt.year == ano_selecionado) & 
-                                (df[col_status].astype(str).str.strip().str.upper().isin(['NÃO REALIZADO', 'NÃO EXECUTADO', 'NAO REALIZADO', 'NAO EXECUTADO'])) &
-                                (df[col_problema].notna())
-                            )
-                            
-                            problems = df[mask][col_problema].astype(str).str.strip().tolist()
-                            
-                            if problems:
-                                route_data[neighborhood] = problems
-                                total_itens += len(problems)
-                    
-                    if route_data:
-                        data_by_route[route] = route_data
+                elements = [Paragraph(f"ORDENS DE SERVIÇO - {ano_sel}", style_header), Spacer(1, 15)]
+                for r, bairros in data_by_route.items():
+                    elements.append(Paragraph(r, style_header))
+                    for b, probs in bairros.items():
+                        elements.append(Paragraph(b, style_bairro))
+                        for p in probs:
+                            elements.append(Paragraph(f"• {p}", style_item))
+                    elements.append(Spacer(1, 10))
 
-                if total_itens == 0:
-                    st.warning(f"⚠️ Nenhum dado encontrado na Coluna H para o ano {ano_selecionado}.")
-                else:
-                    # --- GERAÇÃO DOS ARQUIVOS (EXCEL E PDF) ---
-                    # (Mesma lógica de buffer e download anterior)
-                    excel_buffer = io.BytesIO()
-                    wb = Workbook()
-                    ws = wb.active
-                    row_idx = 1
-                    for r_name, b_dict in data_by_route.items():
-                        c = ws.cell(row=row_idx, column=1, value=r_name)
-                        c.font = xlFont(bold=True, color=cor_txt_rota.replace('#','')); c.fill = PatternFill(start_color=cor_fundo_rota.replace('#',''), fill_type="solid")
-                        row_idx += 1
-                        for b_name, p_list in b_dict.items():
-                            ws.cell(row=row_idx, column=1, value=f"📍 {b_name}").font = xlFont(bold=True)
-                            row_idx += 1
-                            for p in p_list:
-                                ws.cell(row=row_idx, column=1, value=f"    • {p}")
-                                row_idx += 1
-                    wb.save(excel_buffer)
-                    excel_buffer.seek(0)
+                doc.build(elements)
+                pdf_buffer.seek(0)
+                
+                st.success(f"Sucesso! {total_encontrado} itens encontrados.")
+                st.download_button("📄 Baixar PDF com Fonte Customizada", data=pdf_buffer, file_name="Relatorio_Vagalume.pdf")
 
-                    pdf_buffer = io.BytesIO()
-                    doc = SimpleDocTemplate(pdf_buffer, pagesize=A4)
-                    style_r = ParagraphStyle('R', fontSize=14, backColor=HexColor(cor_fundo_rota), textColor=HexColor(cor_txt_rota), alignment=1)
-                    elements = [Paragraph(f"RELATÓRIO {ano_selecionado}", style_r), Spacer(1, 10)]
-                    for r_name, b_dict in data_by_route.items():
-                        elements.append(Paragraph(r_name, style_r))
-                        for b_name, p_list in b_dict.items():
-                            elements.append(Paragraph(f"<b>{b_name}</b>", ParagraphStyle('B', leftIndent=10)))
-                            for p in p_list:
-                                elements.append(Paragraph(f"• {p}", ParagraphStyle('I', leftIndent=20)))
-                    doc.build(elements)
-                    pdf_buffer.seek(0)
-
-                    st.success(f"✅ {total_itens} chamados encontrados!")
-                    st.download_button("📥 Baixar Excel", data=excel_buffer, file_name="Relatorio.xlsx")
-                    st.download_button("📄 Baixar PDF", data=pdf_buffer, file_name="Relatorio.pdf")
-
-            except Exception as e:
-                st.error(f"Erro: {e}")
+        except Exception as e:
+            st.error(f"Erro: {e}")
