@@ -14,31 +14,43 @@ from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
-# --- FUNÇÃO PARA BAIXAR E REGISTRAR FONTES ---
-def configurar_fontes_google():
-    # URL da fonte Roboto (Regular e Bold) do Google Fonts
-    fontes = {
-        "Roboto-Regular.ttf": "https://github.com/google/fonts/raw/main/apache/roboto/static/Roboto-Regular.ttf",
-        "Roboto-Bold.ttf": "https://github.com/google/fonts/raw/main/apache/roboto/static/Roboto-Bold.ttf"
-    }
-    
+# --- FUNÇÃO DE FONTES REFORMULADA (À PROVA DE ERROS) ---
+def configurar_fontes_seguro():
     fontes_disponiveis = ["Helvetica", "Times-Roman", "Courier"]
     
-    for nome_arquivo, url in fontes.items():
-        if not os.path.exists(nome_arquivo):
-            try:
-                response = requests.get(url)
+    # URLs alternativas (direto do repositório de estáticos do Google)
+    url_base = "https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu4mxK.ttf" # Roboto Regular
+    nome_arquivo = "Roboto-Regular.ttf"
+
+    if not os.path.exists(nome_arquivo):
+        try:
+            # timeout=5 garante que o app não fique travado se o download falhar
+            response = requests.get(url_base, timeout=5)
+            if response.status_code == 200:
                 with open(nome_arquivo, 'wb') as f:
                     f.write(response.content)
-            except:
-                continue
-    
-    if os.path.exists("Roboto-Regular.ttf"):
-        pdfmetrics.registerFont(TTFont('Roboto', 'Roboto-Regular.ttf'))
-        pdfmetrics.registerFont(TTFont('Roboto-Bold', 'Roboto-Bold.ttf'))
-        fontes_disponiveis.append("Roboto")
-        
+        except Exception as e:
+            print(f"Erro ao baixar fonte: {e}")
+
+    # Tenta registrar apenas se o arquivo existir e tiver conteúdo (tamanho > 0)
+    if os.path.exists(nome_arquivo) and os.path.getsize(nome_arquivo) > 0:
+        try:
+            pdfmetrics.registerFont(TTFont('Roboto', nome_arquivo))
+            fontes_disponiveis.append("Roboto")
+        except Exception as e:
+            print(f"Erro ao registrar fonte: {e}")
+            
     return fontes_disponiveis
+
+# --- NO INÍCIO DO SEU CÓDIGO ---
+st.set_page_config(page_title="V.A.G.A.L.U.M.E. Pro", layout="wide")
+
+# Inicializa as fontes de forma segura
+if 'fontes_lista' not in st.session_state:
+    st.session_state.fontes_lista = configurar_fontes_seguro()
+
+fontes_lista = st.session_state.fontes_lista
+
 
 # --- INÍCIO DO APP ---
 st.set_page_config(page_title="V.A.G.A.L.U.M.E. Pro", layout="wide")
